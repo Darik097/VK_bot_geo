@@ -40,6 +40,12 @@ QUESTIONS = [
 ]
 
 SESSIONS = {}
+BUDGET_LEVELS = [
+    "5 000–50 000 $",
+    "90 000–150 000 $",
+    "250 000–500 000 $",
+    "Свыше 500 000 $",
+]
 
 
 class FatalVkConfigError(RuntimeError):
@@ -113,9 +119,17 @@ def start_session(user_id: int) -> None:
 
 def status_match(country: dict, selected: list[str]) -> bool:
     statuses = set(selected)
+    if "ВНЖ" in statuses:
+        statuses.update({"ПМЖ", "Золотая виза"})
     if "ПМЖ" in statuses:
         statuses.add("Золотая виза")
     return any(status in country["status"] for status in statuses)
+
+
+def budget_match(country: dict, selected: list[str]) -> bool:
+    selected_levels = [BUDGET_LEVELS.index(item) for item in selected]
+    country_levels = [BUDGET_LEVELS.index(item) for item in country["budget"]]
+    return bool(country_levels) and min(country_levels) <= max(selected_levels)
 
 
 def motivation_match(country: dict, selected: list[str]) -> bool:
@@ -124,25 +138,38 @@ def motivation_match(country: dict, selected: list[str]) -> bool:
 
 
 def country_score(country: dict, answers: dict[str, list[str]]) -> int:
-    checks = [
+    return sum(country_matches(country, answers))
+
+
+def country_matches(country: dict, answers: dict[str, list[str]]) -> tuple[bool, bool, bool, bool]:
+    return (
         status_match(country, answers["status"]),
-        any(item in country["budget"] for item in answers["budget"]),
+        budget_match(country, answers["budget"]),
         motivation_match(country, answers["motivation"]),
         any(item in country["financing"] for item in answers["financing"]),
-    ]
-    return sum(checks)
+    )
+
+
+def country_rank(country: dict, answers: dict[str, list[str]]) -> tuple[int, int]:
+    matches = country_matches(country, answers)
+    weighted_score = sum(
+        weight for matched, weight in zip(matches, (4, 3, 1, 2), strict=True) if matched
+    )
+    return sum(matches), weighted_score
 
 
 def calculate_result(countries: list[dict], answers: dict[str, list[str]]) -> tuple[str, list[dict]]:
-    full_matches = [country for country in countries if country_score(country, answers) == 4]
-    if full_matches:
-        return "full", full_matches
-
-    near_matches = [country for country in countries if country_score(country, answers) == 3]
-    if near_matches:
-        return "near", near_matches
-
-    return "none", []
+    ranked_countries = sorted(
+        countries,
+        key=lambda country: country_rank(country, answers),
+        reverse=True,
+    )
+    best_score = country_score(ranked_countries[0], answers)
+    result_type = "full" if best_score == 4 else "near" if best_score == 3 else "approximate"
+    best_countries = [
+        country for country in ranked_countries if country_score(country, answers) == best_score
+    ]
+    return result_type, best_countries[:3]
 
 
 def build_application_message(
@@ -157,7 +184,7 @@ def build_application_message(
     labels = {
         "full": "Полное совпадение — 4 из 4",
         "near": "Наиболее близкое совпадение — 3 из 4",
-        "none": "Индивидуальный подбор",
+        "approximate": "Предварительный подбор по наиболее близким параметрам",
     }
 
     return "\n".join(
@@ -290,8 +317,9 @@ def handle_message(vk, countries: list[dict], message: dict) -> None:
             )
         else:
             response = (
-                "По выбранным параметрам не удалось автоматически определить подходящую страну.\n\n"
-                "Оставьте ваше имя — специалист проведет индивидуальный подбор."
+                "Точного совпадения по всем параметрам не найдено.\n\n"
+                f"В качестве предварительных вариантов рекомендуем рассмотреть: {country_names}.\n\n"
+                "Напишите ваше имя — специалист уточнит детали и поможет выбрать оптимальную страну."
             )
 
         send_message(vk, user_id, response)
