@@ -353,10 +353,9 @@ def run_message_polling(vk, countries: list[dict]) -> None:
             history = vk.messages.getHistory(
                 peer_id=peer_id,
                 count=unread_count,
-                rev=1,
             )
 
-            for message in history.get("items", []):
+            for message in reversed(history.get("items", [])):
                 if message.get("out") or message.get("from_id", 0) <= 0:
                     continue
                 try:
