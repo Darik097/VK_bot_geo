@@ -11,6 +11,7 @@ from pathlib import Path
 import vk_api
 from dotenv import load_dotenv
 from vk_api.bot_longpoll import VkBotEventType, VkBotLongPoll
+from vk_api.exceptions import ApiError
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 
@@ -41,6 +42,10 @@ QUESTIONS = [
 ]
 
 SESSIONS = {}
+
+
+class FatalVkConfigError(RuntimeError):
+    pass
 
 
 def setup_logging() -> None:
@@ -335,8 +340,22 @@ def run_bot() -> None:
     countries = load_countries()
     session = vk_api.VkApi(token=token)
     vk = session.get_api()
-    group_id = int(os.getenv("VK_GROUP_ID") or vk.groups.getById()[0]["id"])
-    longpoll = VkBotLongPoll(session, group_id)
+
+    try:
+        group_id = int(os.getenv("VK_GROUP_ID") or vk.groups.getById()[0]["id"])
+        longpoll = VkBotLongPoll(session, group_id)
+    except ApiError as error:
+        if error.code == 27:
+            raise FatalVkConfigError(
+                "VK_TOKEN отозван или не принадлежит этому сообществу. "
+                "Создайте новый ключ доступа сообщества VK и обновите VK_TOKEN в .env."
+            ) from error
+        if error.code == 15:
+            raise FatalVkConfigError(
+                "VK_TOKEN создан без нужных прав. Нужен ключ доступа сообщества "
+                "с правами на сообщения и включенным Long Poll API."
+            ) from error
+        raise
 
     logging.info("VK-бот запущен. Группа: %s", group_id)
     for event in longpoll.listen():
@@ -359,6 +378,9 @@ def main() -> None:
         except KeyboardInterrupt:
             logging.info("Остановка бота")
             raise
+        except FatalVkConfigError:
+            logging.exception("Критическая ошибка настройки VK")
+            time.sleep(300)
         except Exception:
             logging.exception("Бот упал, повторный запуск через 10 секунд")
             time.sleep(10)
