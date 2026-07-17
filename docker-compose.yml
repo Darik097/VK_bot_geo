@@ -1,0 +1,12 @@
+services:
+  vk-bot:
+    build: .
+    container_name: vk-bot-geo
+    restart: unless-stopped
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
