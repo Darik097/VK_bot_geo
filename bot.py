@@ -46,6 +46,27 @@ BUDGET_LEVELS = [
     "250 000–500 000 $",
     "Свыше 500 000 $",
 ]
+COUNTRY_FLAGS = {
+    "Парагвай": "🇵🇾",
+    "Сан-Томе и Принсипи": "🇸🇹",
+    "Турция": "🇹🇷",
+    "Вануату": "🇻🇺",
+    "Египет": "🇪🇬",
+    "США": "🇺🇸",
+    "Португалия": "🇵🇹",
+    "Греция": "🇬🇷",
+    "Кипр": "🇨🇾",
+    "Испания": "🇪🇸",
+    "Хорватия": "🇭🇷",
+    "Франция": "🇫🇷",
+    "Болгария": "🇧🇬",
+    "Словения": "🇸🇮",
+    "Австрия": "🇦🇹",
+    "ОАЭ": "🇦🇪",
+    "Оман": "🇴🇲",
+    "Маврикий": "🇲🇺",
+    "Таиланд": "🇹🇭",
+}
 
 
 class FatalVkConfigError(RuntimeError):
@@ -172,6 +193,13 @@ def calculate_result(countries: list[dict], answers: dict[str, list[str]]) -> tu
     return result_type, best_countries[:3]
 
 
+def format_country_list(countries: list[dict]) -> str:
+    return "\n".join(
+        f"{COUNTRY_FLAGS.get(country['name'], '🌍')}  {country['name']}"
+        for country in countries
+    )
+
+
 def build_application_message(
     *,
     user_id: int,
@@ -203,7 +231,9 @@ def build_application_message(
             "",
             "РЕЗУЛЬТАТ:",
             labels[result_type],
-            f"Страны: {', '.join(country['name'] for country in countries) or 'Не определены'}",
+            "",
+            "ПОДОБРАННЫЕ СТРАНЫ:",
+            format_country_list(countries),
         ]
     )
 
@@ -303,22 +333,26 @@ def handle_message(vk, countries: list[dict], message: dict) -> None:
         session["countries"] = matched_countries
         session["awaiting_name"] = True
 
-        country_names = ", ".join(country["name"] for country in matched_countries)
+        country_list = format_country_list(matched_countries)
         if result_type == "full":
             response = (
-                "По вашим параметрам рекомендуем рассмотреть такие страны, как: "
-                f"{country_names}.\n\nНапишите ваше имя — мы перезвоним и проконсультируем по конкретной стране."
+                "🎯 Ваша персональная подборка\n\n"
+                f"{country_list}\n\n"
+                "Эти варианты точнее всего соответствуют выбранным параметрам.\n\n"
+                "Напишите ваше имя — специалист проконсультирует вас по каждой подходящей программе."
             )
         elif result_type == "near":
             response = (
-                "Идеального совпадения по всем выбранным параметрам не найдено.\n\n"
-                f"Ближе всего к вашему запросу подходят: {country_names}.\n\n"
-                "Напишите ваше имя — мы перезвоним и проконсультируем."
+                "✨ Ближе всего к вашему запросу\n\n"
+                f"{country_list}\n\n"
+                "Подборка составлена по максимальному количеству совпавших параметров.\n\n"
+                "Напишите ваше имя — специалист уточнит детали и предложит оптимальную программу."
             )
         else:
             response = (
-                "Точного совпадения по всем параметрам не найдено.\n\n"
-                f"В качестве предварительных вариантов рекомендуем рассмотреть: {country_names}.\n\n"
+                "🧭 Предварительная подборка\n\n"
+                f"{country_list}\n\n"
+                "Это наиболее близкие варианты по вашим ответам.\n\n"
                 "Напишите ваше имя — специалист уточнит детали и поможет выбрать оптимальную страну."
             )
 

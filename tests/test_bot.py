@@ -1,7 +1,14 @@
 import itertools
 import unittest
 
-from bot import QUESTIONS, calculate_result, country_score, load_countries
+from bot import (
+    COUNTRY_FLAGS,
+    QUESTIONS,
+    calculate_result,
+    country_score,
+    format_country_list,
+    load_countries,
+)
 
 
 class CalculateResultTests(unittest.TestCase):
@@ -51,6 +58,15 @@ class CalculateResultTests(unittest.TestCase):
             self.assertTrue(
                 all(country_score(country, answers) == best_score for country in countries)
             )
+
+    def test_every_country_has_flag_and_is_formatted(self) -> None:
+        self.assertEqual(
+            {country["name"] for country in self.countries},
+            set(COUNTRY_FLAGS),
+        )
+        formatted = format_country_list(self.countries[:2])
+        self.assertIn("🇵🇾  Парагвай", formatted)
+        self.assertIn("🇸🇹  Сан-Томе и Принсипи", formatted)
 
 
 if __name__ == "__main__":
