@@ -3,9 +3,7 @@ import logging
 import os
 import re
 import secrets
-import smtplib
 import time
-from email.message import EmailMessage
 from pathlib import Path
 
 import vk_api
@@ -147,7 +145,7 @@ def calculate_result(countries: list[dict], answers: dict[str, list[str]]) -> tu
     return "none", []
 
 
-def send_mail(
+def build_application_message(
     *,
     user_id: int,
     answers: dict[str, list[str]],
@@ -155,49 +153,32 @@ def send_mail(
     phone: str,
     result_type: str,
     countries: list[dict],
-) -> None:
-    smtp_password = get_required_env("SMTP_PASSWORD")
-    admin_email = os.getenv("ADMIN_EMAIL", "pinned-mir@yandex.ru")
-    smtp_host = os.getenv("SMTP_HOST", "smtp.yandex.ru")
-    smtp_port = int(os.getenv("SMTP_PORT", "465"))
-    smtp_user = os.getenv("SMTP_USER", admin_email)
-
+) -> str:
     labels = {
         "full": "Полное совпадение — 4 из 4",
         "near": "Наиболее близкое совпадение — 3 из 4",
         "none": "Индивидуальный подбор",
     }
 
-    message = EmailMessage()
-    message["Subject"] = "Новая анкета подбора страны — Точка на карте"
-    message["From"] = smtp_user
-    message["To"] = admin_email
-    message.set_content(
-        "\n".join(
-            [
-                "НОВАЯ АНКЕТА ПОЛЬЗОВАТЕЛЯ",
-                "",
-                f"Имя: {name}",
-                f"Телефон: {phone}",
-                f"VK user ID: {user_id}",
-                "",
-                "ОТВЕТЫ:",
-                f"Цель: {', '.join(answers['status'])}",
-                f"Бюджет: {', '.join(answers['budget'])}",
-                f"Мотивация: {', '.join(answers['motivation'])}",
-                f"Финансирование: {', '.join(answers['financing'])}",
-                "",
-                "РЕЗУЛЬТАТ:",
-                labels[result_type],
-                f"Страны: {', '.join(country['name'] for country in countries) or 'Не определены'}",
-                "",
-            ]
-        )
+    return "\n".join(
+        [
+            "НОВАЯ АНКЕТА ПОЛЬЗОВАТЕЛЯ",
+            "",
+            f"Имя: {name}",
+            f"Телефон: {phone}",
+            f"VK: https://vk.com/id{user_id}",
+            "",
+            "ОТВЕТЫ:",
+            f"Цель: {', '.join(answers['status'])}",
+            f"Бюджет: {', '.join(answers['budget'])}",
+            f"Мотивация: {', '.join(answers['motivation'])}",
+            f"Финансирование: {', '.join(answers['financing'])}",
+            "",
+            "РЕЗУЛЬТАТ:",
+            labels[result_type],
+            f"Страны: {', '.join(country['name'] for country in countries) or 'Не определены'}",
+        ]
     )
-
-    with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as smtp:
-        smtp.login(smtp_user, smtp_password)
-        smtp.send_message(message)
 
 
 def send_message(vk, user_id: int, message: str, keyboard: str | None = None) -> None:
@@ -250,18 +231,23 @@ def handle_message(vk, countries: list[dict], message: dict) -> None:
 
         session["awaiting_phone"] = False
         try:
-            send_mail(
-                user_id=user_id,
-                answers=answers,
-                name=session["name"],
-                phone=text,
-                result_type=session["result"],
-                countries=session["countries"],
+            admin_vk_id = int(get_required_env("ADMIN_VK_ID"))
+            send_message(
+                vk,
+                admin_vk_id,
+                build_application_message(
+                    user_id=user_id,
+                    answers=answers,
+                    name=session["name"],
+                    phone=text,
+                    result_type=session["result"],
+                    countries=session["countries"],
+                ),
             )
             response = "Спасибо. Анкета отправлена специалисту. Мы свяжемся с вами для консультации."
         except Exception:
-            logging.exception("Не удалось отправить email с анкетой")
-            response = "Анкета заполнена, но отправка не выполнена. Проверьте SMTP-настройки на сервере."
+            logging.exception("Не удалось отправить анкету администратору VK")
+            response = "Анкета заполнена, но отправка специалисту временно не выполнена."
 
         send_message(vk, user_id, response, restart_keyboard())
         return
