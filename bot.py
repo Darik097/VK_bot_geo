@@ -211,8 +211,7 @@ def send_message(vk, user_id: int, message: str, keyboard: str | None = None) ->
     vk.messages.send(**payload)
 
 
-def handle_event(vk, countries: list[dict], event) -> None:
-    message = event.object.message
+def handle_message(vk, countries: list[dict], message: dict) -> None:
     user_id = message["from_id"]
     text = message.get("text", "").strip()
 
@@ -335,6 +334,41 @@ def handle_event(vk, countries: list[dict], event) -> None:
     )
 
 
+def run_message_polling(vk, countries: list[dict]) -> None:
+    logging.warning(
+        "VK Long Poll недоступен: включен резервный опрос непрочитанных сообщений. "
+        "Для штатного режима добавьте ключу право управления сообществом."
+    )
+
+    while True:
+        conversations = vk.messages.getConversations(filter="unread", count=200)
+        for item in conversations.get("items", []):
+            conversation = item.get("conversation", {})
+            peer = conversation.get("peer", {})
+            if peer.get("type") != "user":
+                continue
+
+            peer_id = peer.get("id")
+            unread_count = min(conversation.get("unread_count", 1), 200)
+            history = vk.messages.getHistory(
+                peer_id=peer_id,
+                count=unread_count,
+                rev=1,
+            )
+
+            for message in history.get("items", []):
+                if message.get("out") or message.get("from_id", 0) <= 0:
+                    continue
+                try:
+                    handle_message(vk, countries, message)
+                except Exception:
+                    logging.exception("Ошибка обработки сообщения VK")
+
+            vk.messages.markAsRead(peer_id=peer_id)
+
+        time.sleep(1)
+
+
 def run_bot() -> None:
     token = get_required_env("VK_TOKEN")
     countries = load_countries()
@@ -343,18 +377,20 @@ def run_bot() -> None:
 
     try:
         group_id = int(os.getenv("VK_GROUP_ID") or vk.groups.getById()[0]["id"])
-        longpoll = VkBotLongPoll(session, group_id)
     except ApiError as error:
         if error.code == 27:
             raise FatalVkConfigError(
                 "VK_TOKEN отозван или не принадлежит этому сообществу. "
                 "Создайте новый ключ доступа сообщества VK и обновите VK_TOKEN в .env."
             ) from error
+        raise
+
+    try:
+        longpoll = VkBotLongPoll(session, group_id)
+    except ApiError as error:
         if error.code == 15:
-            raise FatalVkConfigError(
-                "VK_TOKEN создан без нужных прав. Нужен ключ доступа сообщества "
-                "с правами на сообщения и включенным Long Poll API."
-            ) from error
+            run_message_polling(vk, countries)
+            return
         raise
 
     logging.info("VK-бот запущен. Группа: %s", group_id)
@@ -363,7 +399,7 @@ def run_bot() -> None:
             continue
 
         try:
-            handle_event(vk, countries, event)
+            handle_message(vk, countries, event.object.message)
         except Exception:
             logging.exception("Ошибка обработки события VK")
 
