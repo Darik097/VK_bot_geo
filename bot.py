@@ -40,12 +40,6 @@ QUESTIONS = [
 ]
 
 SESSIONS = {}
-BUDGET_LEVELS = [
-    "5 000–50 000 $",
-    "90 000–150 000 $",
-    "250 000–500 000 $",
-    "Свыше 500 000 $",
-]
 COUNTRY_FLAGS = {
     "Парагвай": "🇵🇾",
     "Сан-Томе и Принсипи": "🇸🇹",
@@ -65,7 +59,7 @@ COUNTRY_FLAGS = {
     "ОАЭ": "🇦🇪",
     "Оман": "🇴🇲",
     "Маврикий": "🇲🇺",
-    "Таиланд": "🇹🇭",
+    "Тайланд": "🇹🇭",
 }
 
 
@@ -153,17 +147,13 @@ def start_session(user_id: int) -> None:
 
 def status_match(country: dict, selected: list[str]) -> bool:
     statuses = set(selected)
-    if "ВНЖ" in statuses:
-        statuses.update({"ПМЖ", "Золотая виза"})
     if "ПМЖ" in statuses:
         statuses.add("Золотая виза")
     return any(status in country["status"] for status in statuses)
 
 
 def budget_match(country: dict, selected: list[str]) -> bool:
-    selected_levels = [BUDGET_LEVELS.index(item) for item in selected]
-    country_levels = [BUDGET_LEVELS.index(item) for item in country["budget"]]
-    return bool(country_levels) and min(country_levels) <= max(selected_levels)
+    return any(item in country["budget"] for item in selected)
 
 
 def motivation_match(country: dict, selected: list[str]) -> bool:
@@ -198,12 +188,19 @@ def calculate_result(countries: list[dict], answers: dict[str, list[str]]) -> tu
         key=lambda country: country_rank(country, answers),
         reverse=True,
     )
-    best_score = country_score(ranked_countries[0], answers)
-    result_type = "full" if best_score == 4 else "near" if best_score == 3 else "approximate"
+    full_matches = [country for country in countries if country_score(country, answers) == 4]
+    if full_matches:
+        return "full", full_matches
+
+    near_matches = [country for country in countries if country_score(country, answers) == 3]
+    if near_matches:
+        return "near", near_matches
+
+    best_rank = country_rank(ranked_countries[0], answers)
     best_countries = [
-        country for country in ranked_countries if country_score(country, answers) == best_score
+        country for country in ranked_countries if country_rank(country, answers) == best_rank
     ]
-    return result_type, best_countries[:3]
+    return "approximate", best_countries[:3]
 
 
 def format_country_list(countries: list[dict]) -> str:
