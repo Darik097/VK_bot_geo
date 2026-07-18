@@ -103,6 +103,19 @@ def get_required_env(name: str) -> str:
     return value
 
 
+def get_admin_vk_ids() -> list[int]:
+    raw_ids = os.getenv("ADMIN_VK_IDS") or get_required_env("ADMIN_VK_ID")
+    try:
+        admin_ids = [int(item.strip()) for item in raw_ids.split(",") if item.strip()]
+    except ValueError as error:
+        raise RuntimeError("ADMIN_VK_IDS должен содержать числовые VK ID через запятую") from error
+
+    unique_ids = list(dict.fromkeys(admin_ids))
+    if not unique_ids or any(admin_id <= 0 for admin_id in unique_ids):
+        raise RuntimeError("ADMIN_VK_IDS должен содержать положительные VK ID")
+    return unique_ids
+
+
 def build_question_keyboard(question: tuple[str, str, list[str]]) -> str:
     keyboard = VkKeyboard()
     for option in question[2]:
@@ -249,6 +262,20 @@ def send_message(vk, user_id: int, message: str, keyboard: str | None = None) ->
     vk.messages.send(**payload)
 
 
+def send_application_to_admins(vk, message: str) -> int:
+    sent_count = 0
+    for admin_vk_id in get_admin_vk_ids():
+        try:
+            send_message(vk, admin_vk_id, message)
+            sent_count += 1
+        except Exception:
+            logging.exception("Не удалось отправить анкету администратору VK %s", admin_vk_id)
+
+    if sent_count == 0:
+        raise RuntimeError("Не удалось отправить анкету ни одному администратору")
+    return sent_count
+
+
 def handle_message(vk, countries: list[dict], message: dict) -> None:
     user_id = message["from_id"]
     text = message.get("text", "").strip()
@@ -288,18 +315,17 @@ def handle_message(vk, countries: list[dict], message: dict) -> None:
 
         session["awaiting_phone"] = False
         try:
-            admin_vk_id = int(get_required_env("ADMIN_VK_ID"))
-            send_message(
+            application_message = build_application_message(
+                user_id=user_id,
+                answers=answers,
+                name=session["name"],
+                phone=text,
+                result_type=session["result"],
+                countries=session["countries"],
+            )
+            send_application_to_admins(
                 vk,
-                admin_vk_id,
-                build_application_message(
-                    user_id=user_id,
-                    answers=answers,
-                    name=session["name"],
-                    phone=text,
-                    result_type=session["result"],
-                    countries=session["countries"],
-                ),
+                application_message,
             )
             response = "Спасибо. Анкета отправлена специалисту. Мы свяжемся с вами для консультации."
         except Exception:

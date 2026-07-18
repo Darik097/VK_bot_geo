@@ -1,5 +1,7 @@
 import itertools
+import os
 import unittest
+from unittest.mock import patch
 
 from bot import (
     COUNTRY_FLAGS,
@@ -7,6 +9,7 @@ from bot import (
     calculate_result,
     country_score,
     format_country_list,
+    get_admin_vk_ids,
     load_countries,
 )
 
@@ -67,6 +70,14 @@ class CalculateResultTests(unittest.TestCase):
         formatted = format_country_list(self.countries[:2])
         self.assertIn("🇵🇾  Парагвай", formatted)
         self.assertIn("🇸🇹  Сан-Томе и Принсипи", formatted)
+
+    def test_multiple_admin_ids_are_parsed_and_deduplicated(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"ADMIN_VK_IDS": "527723173, 390157332,527723173"},
+            clear=False,
+        ):
+            self.assertEqual(get_admin_vk_ids(), [527723173, 390157332])
 
 
 if __name__ == "__main__":
